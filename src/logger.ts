@@ -12,17 +12,28 @@ type LogLevel = 'info' | 'success' | 'warn' | 'error';
 function formatError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return 'Unknown error';
+  if (error && typeof error === 'object') {
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return 'Unknown error';
+    }
   }
+  return String(error ?? 'Unknown error');
 }
 
 function write(level: LogLevel, message: string, error?: unknown): void {
-  const color = { info: COLORS.blue, success: COLORS.green, warn: COLORS.yellow, error: COLORS.red }[level];
+  const color = {
+    info: COLORS.blue,
+    success: COLORS.green,
+    warn: COLORS.yellow,
+    error: COLORS.red,
+  }[level];
+
   const suffix = error === undefined ? '' : `: ${formatError(error)}`;
-  console.log(`${COLORS.gray}${new Date().toISOString()}${COLORS.reset} ${color}[${level.toUpperCase()}]${COLORS.reset} ${message}${suffix}`);
+  console.log(
+    `${COLORS.gray}${new Date().toISOString()}${COLORS.reset} ${color}[${level.toUpperCase()}]${COLORS.reset} ${message}${suffix}`,
+  );
 }
 
 export const logger = {

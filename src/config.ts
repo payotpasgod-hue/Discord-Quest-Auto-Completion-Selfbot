@@ -12,7 +12,7 @@ function optional(value: string | undefined): string | undefined {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const token = env.TOKEN?.trim();
+  const token = optional(env.TOKEN);
   if (!token) {
     throw new Error('TOKEN is required. Add it to .env or your GitHub Actions secrets.');
   }
