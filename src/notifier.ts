@@ -31,7 +31,18 @@ export class WebhookNotifier {
   async send(embed: APIEmbed): Promise<void> {
     if (!this.id || !this.token) return;
 
-    const body: RESTPostAPIWebhookWithTokenJSONBody = { embeds: [embed] };
+    const body: RESTPostAPIWebhookWithTokenJSONBody = {
+      embeds: [
+        {
+          ...embed,
+          footer: embed.footer ?? {
+            text: 'Discord Quest Runner',
+          },
+          timestamp: embed.timestamp ?? new Date().toISOString(),
+        },
+      ],
+    };
+
     try {
       await this.api.execute(this.id, this.token, body);
     } catch (error) {
@@ -64,12 +75,18 @@ export class WebhookNotifier {
   }
 
   async summary(total: number, processed: number, failed: number): Promise<void> {
+    const title = failed > 0 ? 'Quest Run Finished with Warnings' : 'Quest Run Finished';
+    const color = failed > 0 ? COLORS.warning : COLORS.success;
+
     await this.send({
-      title: failed ? 'Quest Run Finished with Warnings' : 'Quest Run Finished',
-      color: failed ? COLORS.warning : COLORS.success,
+      title,
+      color,
+      description: failed > 0
+        ? 'Some quests failed during the run. Review the logs for details.'
+        : 'Everything processed successfully.',
       fields: [
         { name: 'Discovered', value: String(total), inline: true },
-        { name: 'Processed', value: String(processed), inline: true },
+        { name: 'Completed', value: String(processed), inline: true },
         { name: 'Failed', value: String(failed), inline: true },
       ],
       timestamp: new Date().toISOString(),

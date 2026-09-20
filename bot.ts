@@ -2,42 +2,12 @@ import { GatewayDispatchEvents } from 'discord-api-types/v10';
 import { ClientQuest } from './src/client';
 import { loadConfig } from './src/config';
 import { logger } from './src/logger';
-
-async function processQuests(client: ClientQuest): Promise<void> {
-  const manager = await client.fetchQuests(false);
-  const quests = manager.filterQuestsValidToDo();
-
-  logger.info(`Found ${quests.length} valid quests to process.`);
-  if (quests.length === 0) {
-    await client.notifySummary(0, 0, 0);
-    return;
-  }
-
-  const results = await Promise.allSettled(
-    quests.map(async (quest) => {
-      try {
-        await manager.doingQuest(quest);
-        return { questId: quest.id, questName: quest.config.messages.quest_name };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Quest "${quest.config.messages.quest_name}" failed: ${message}`);
-      }
-    }),
-  );
-
-  const failures = results.filter((result) => result.status === 'rejected');
-  const successfulCount = results.length - failures.length;
-
-  for (const failure of failures) {
-    logger.error('Quest processing failed', failure.status === 'rejected' ? failure.reason : failure);
-  }
-
-  await client.notifySummary(quests.length, successfulCount, failures.length);
-}
+import { QuestRunner } from './src/runner';
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const client = new ClientQuest(config.token, config.webhookUrl);
+  const runner = new QuestRunner(client);
 
   client.once(GatewayDispatchEvents.Ready, async ({ data }) => {
     const username = data.user.username;
@@ -45,7 +15,13 @@ async function main(): Promise<void> {
 
     try {
       await client.notifyStartup(username);
-      await processQuests(client);
+      const summary = await runner.run();
+
+      logger.info(
+        `Run complete: ${summary.completed}/${summary.total} completed, ${summary.failed} failed in ${Math.round(summary.durationMs / 1000)}s`,
+      );
+
+      await client.notifySummary(summary.total, summary.completed, summary.failed);
     } catch (error) {
       const message = logger.formatError(error);
       logger.error('Quest run failed', message);
