@@ -1,61 +1,42 @@
 import { GatewayDispatchEvents } from 'discord-api-types/v10';
 import { ClientQuest } from './src/client';
-import { Utils } from './src/utils';
+import { loadConfig } from './src/config';
+import { logger } from './src/logger';
 
-let currentUserId: string | null = null;
+async function main(): Promise<void> {
+  const config = loadConfig();
+  const client = new ClientQuest(config.token, config.webhookUrl);
 
-const client = new ClientQuest(process.env.TOKEN!);
+  client.once(GatewayDispatchEvents.Ready, async ({ data }) => {
+    const username = data.user.username;
+    logger.success(`Logged in as @${username}`);
 
-/*
-client.on(
-	GatewayDispatchEvents.MessageCreate,
-	async ({ data: message, api }) => {
-		console.log('Message received:', message.content);
-		if (message.content === 'ping' && message.author.id === currentUserId) {
-			await api.channels.createMessage(message.channel_id, {
-				content: 'pong',
-			});
-		}
-	},
-);
-*/
+    try {
+      await client.notifyStartup(username);
+      const manager = await client.fetchQuests(false);
+      const quests = manager.filterQuestsValidToDo();
+      logger.info(`Found ${quests.length} valid quests to process.`);
 
-client.once(GatewayDispatchEvents.Ready, async ({ data, api }) => {
-	currentUserId = data.user.id;
-	if (process.env.GITHUB_ACTIONS === 'true') {
-		console.log('Logged in!');
-	} else {
-		console.log(`Logged in as @${data.user.username}`);
-	}
+      const results = await Promise.allSettled(quests.map((quest) => manager.doingQuest(quest)));
+      const failed = results.filter((result) => result.status === 'rejected');
+      failed.forEach((result) => logger.error('Quest processing failed', result.reason));
+      await client.notifySummary(quests.length, results.length - failed.length, failed.length);
+    } catch (error) {
+      logger.error('Quest run failed', error);
+      await client.notifyError(logger.formatError(error));
+    } finally {
+      logger.info('All quests processed. Disconnecting...');
+      await client.destroy().catch((error) => logger.warn('Failed to disconnect cleanly', error));
+    }
+  });
 
-	await client.fetchQuests(false);
-	const questsValid = client.questManager!.filterQuestsValidToDo();
-	console.log(`Found ${questsValid.length} valid quests to do.`);
-	await Promise.allSettled(
-		questsValid.map((quest) => client.questManager!.doingQuest(quest)),
-	);
+  await client.connect();
+}
 
-	// ! Redeem rewards for completed quests
-	// Todo: Cache quests
-	/*
-	await client.fetchQuests(false);
-	const questsToRedeem = client.questManager!.filterQuestsValidToRedeem();
-	console.log(`Found ${questsToRedeem.length} quests to redeem rewards for.`);
-	for (const quest of questsToRedeem) {
-		await client.questManager!.redeemQuest(quest);
-	}
-	*/
-	// Disconnect
-	console.log('All quests processed. Disconnecting...');
-	await client.destroy();
+process.on('unhandledRejection', (reason) => logger.error('Unhandled promise rejection', reason));
+process.on('uncaughtException', (error) => logger.error('Uncaught exception', error));
+
+main().catch((error) => {
+  logger.error('Unable to start the runner', error);
+  process.exitCode = 1;
 });
-
-process.on('unhandledRejection', (reason, promise) => {
-	console.error('[Error:] Unhandled Rejection');
-});
-
-process.on('uncaughtException', (error) => {
-	console.error('Uncaught Exception:', error.message);
-});
-
-client.connect();
